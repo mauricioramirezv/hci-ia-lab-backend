@@ -1,0 +1,175 @@
+﻿name: hci-ia-backend
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:?Set bootstrap user in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:?Set bootstrap password in .env}
+      POSTGRES_DB: postgres
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [hci_pg_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "250"
+    volumes: [hci_mailpit_data:/data]
+    expose: ["1025"]
+    ports: ["127.0.0.1:8025:8025"]
+    networks: [backend]
+  identidad:
+    build:
+      context: .
+      dockerfile: services/identidad/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${IDENTIDAD_NODE_ENV:-development}
+      PORT: "3001"
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      IDENTITY_COOKIE_SECURE: ${IDENTITY_COOKIE_SECURE:-false}
+      IDENTITY_COOKIE_SAME_SITE: ${IDENTITY_COOKIE_SAME_SITE:-lax}
+      IDENTITY_SESSION_HOURS: ${IDENTITY_SESSION_HOURS:-24}
+      IDENTITY_WEB_BASE_URL: ${IDENTITY_WEB_BASE_URL:-http://127.0.0.1:5173/hci-lab-ia/}
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:?Set identity internal token in .env}
+      IDENTITY_BASE_URL: http://identidad:3001
+      IDENTITY_MAIL_TRANSPORT: ${IDENTITY_MAIL_TRANSPORT:-smtp}
+      IDENTITY_SMTP_URL: ${IDENTITY_SMTP_URL:-smtp://mailpit:1025}
+      IDENTITY_SMTP_FROM: "${IDENTITY_SMTP_FROM:-HCI Lab IA <lab@hci.local>}"
+      LEARNING_BASE_URL: http://aprendizaje:3002
+      COMMUNITY_BASE_URL: http://comunidad:3003
+      EVIDENCE_BASE_URL: http://evidencias:3004
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${IDENTIDAD_DB:?Set DB in .env}
+      POSTGRES_USER: ${IDENTIDAD_USER:?Set runtime user in .env}
+      POSTGRES_PASSWORD: ${IDENTIDAD_PASSWORD:?Set runtime password in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports: ["127.0.0.1:3001:3001"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [backend]
+  aprendizaje:
+    build:
+      context: .
+      dockerfile: services/aprendizaje/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      IDENTITY_BASE_URL: http://identidad:3001
+      COMMUNITY_BASE_URL: http://comunidad:3003
+      EVIDENCE_BASE_URL: http://evidencias:3004
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:?Set identity internal token in .env}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${APRENDIZAJE_DB:?Set DB in .env}
+      POSTGRES_USER: ${APRENDIZAJE_USER:?Set runtime user in .env}
+      POSTGRES_PASSWORD: ${APRENDIZAJE_PASSWORD:?Set runtime password in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports: ["127.0.0.1:3002:3002"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [backend]
+  comunidad:
+    build:
+      context: .
+      dockerfile: services/comunidad/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3003"
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      IDENTITY_BASE_URL: http://identidad:3001
+      LEARNING_BASE_URL: http://aprendizaje:3002
+      EVIDENCE_BASE_URL: http://evidencias:3004
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:?Set identity internal token in .env}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${COMUNIDAD_DB:?Set DB in .env}
+      POSTGRES_USER: ${COMUNIDAD_USER:?Set runtime user in .env}
+      POSTGRES_PASSWORD: ${COMUNIDAD_PASSWORD:?Set runtime password in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports: ["127.0.0.1:3003:3003"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [backend]
+  evidencias:
+    build:
+      context: .
+      dockerfile: services/evidencias/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3004"
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      IDENTITY_BASE_URL: http://identidad:3001
+      LEARNING_BASE_URL: http://aprendizaje:3002
+      COMMUNITY_BASE_URL: http://comunidad:3003
+      EVIDENCE_RETENTION_DAYS: ${EVIDENCE_RETENTION_DAYS:-30}
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:?Set identity internal token in .env}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${EVIDENCIAS_DB:?Set DB in .env}
+      POSTGRES_USER: ${EVIDENCIAS_USER:?Set runtime user in .env}
+      POSTGRES_PASSWORD: ${EVIDENCIAS_PASSWORD:?Set runtime password in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports: ["127.0.0.1:3004:3004"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks: [backend]
+volumes:
+  hci_pg_data:
+  hci_mailpit_data:
+networks:
+  backend:
+    driver: bridge
+
+
+

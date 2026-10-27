@@ -1,0 +1,31 @@
+import type { FastifyInstance } from 'fastify';
+import type { Pool } from 'pg';
+import type { Config } from '../../config.js';
+import type { SessionPort } from '../application/session.js';
+import { ReportsApplication } from '../application/reports.js';
+import { ReportError, exportReport } from '../domain/reports.js';
+import { PostgresReportRepository } from '../infrastructure/postgres-reports.js';
+import { HttpReportSources } from '../infrastructure/report-sources.js';
+import { account } from './evidence-routes.js';
+import type { ReportInput } from '../application/use-cases.js';
+import type { ReportSelection } from '../domain/evidence.js';
+const uuid={type:'string',format:'uuid'};
+const idParams={type:'object',additionalProperties:false,required:['id'],properties:{id:uuid}};
+const keyHeader={type:'object',required:['idempotency-key'],properties:{'idempotency-key':{type:'string',minLength:1,maxLength:128}}};
+const record={type:'object',additionalProperties:false,required:['section','source','id'],properties:{section:{type:'string',enum:['selected','before','after']},source:{type:'string',enum:['execution','persona','scenario','reservation','finding','evaluation_session','ux_session','evidence','demo_user','multimodal_evidence','lab_event','accessibility_check']},id:uuid}};
+function failure(reply:import('fastify').FastifyReply,cause:unknown){if(!(cause instanceof ReportError))throw cause;return reply.code(cause.code==='NOT_FOUND'?404:cause.code==='DEPENDENCY_UNAVAILABLE'?503:cause.code==='SNAPSHOT_NOT_READY'||cause.code==='IDEMPOTENCY_KEY_REUSED'?409:400).send({code:cause.code,requestId:reply.request.id});}
+export function reportApplication(pool:Pool,config:Config){return new ReportsApplication(new PostgresReportRepository(pool),new HttpReportSources(config.identityBaseUrl,config.learningBaseUrl,config.communityBaseUrl,config.identityInternalToken));}
+export async function registerReportRoutes(app:FastifyInstance,pool:Pool,sessions:SessionPort,config:Config){
+  const reports=reportApplication(pool,config);
+  app.get('/v1/reports',{schema:{operationId:'listReportDefinitions',response:{200:{type:'object',required:['items','limit','offset'],properties:{items:{type:'array',items:{$ref:'RemoteReport#'}},limit:{type:'integer'},offset:{type:'integer'}}}},tags:['reports'],security:[{sessionCookie:[]}],querystring:{type:'object',additionalProperties:false,required:['workspaceId'],properties:{workspaceId:uuid,limit:{type:'integer',minimum:1,maximum:100,default:25},offset:{type:'integer',minimum:0,default:0}}}}},async(request,reply)=>{const actor=await account(request,reply,sessions);if(!actor)return;const query=request.query as {workspaceId:string;limit?:number;offset?:number};try{return {items:await reports.list(actor.id,query.workspaceId,query.limit??25,query.offset??0),limit:query.limit??25,offset:query.offset??0};}catch(error){return failure(reply,error);}});
+  app.get<{Params:{id:string}}>('/v1/reports/:id',{schema:{operationId:'getReportDefinition',response:{200:{type:'object',required:['item'],properties:{item:{$ref:'RemoteReport#'}}}},tags:['reports'],security:[{sessionCookie:[]}],params:idParams}},async(request,reply)=>{const actor=await account(request,reply,sessions);if(!actor)return;try{return {item:await reports.get(actor.id,request.params.id)};}catch(error){return failure(reply,error);}});
+  app.post('/v1/reports',{schema:{operationId:'saveReportDefinition',tags:['reports'],security:[{sessionCookie:[],csrfHeader:[]}],headers:keyHeader,body:{type:'object',additionalProperties:false,required:['workspaceId'],properties:{workspaceId:uuid,...Object.fromEntries(['projectName','objective','method','interpretation','improvements','limitations','conclusions','references','justification'].map(key=>[key,{type:'string',maxLength:5000}])),includeComparison:{type:'boolean'},format:{type:'string',enum:['pdf','markdown','csv','json'],default:'json'},records:{type:'array',minItems:1,maxItems:100,items:record},executionIds:{type:'array',maxItems:100,items:uuid}},anyOf:[{required:['records']},{required:['executionIds']}]}}},async(request,reply)=>{
+    if(request.headers.origin&&!config.corsOrigins.includes(request.headers.origin))return reply.code(403).send({code:'FORBIDDEN',requestId:request.id});const actor=await account(request,reply,sessions,true);if(!actor)return;
+    const input=request.body as ReportInput&{executionIds?:string[]};const records=input.records??(input.executionIds??[]).map(id=>({id,source:'execution',section:'selected'} as ReportSelection));
+    try{const result=await reports.create(actor.id,{...input,records},String(request.headers['idempotency-key']),request.id);return reply.code(result.replayed?200:201).send(result);}catch(error){return failure(reply,error);}
+  });
+  app.post<{Params:{id:string}}>('/v1/reports/:id/generate',{schema:{operationId:'generateReportSnapshot',response:{200:{$ref:'ReportGeneration#'}},tags:['reports'],security:[{sessionCookie:[],csrfHeader:[]}],params:idParams,headers:keyHeader}},async(request,reply)=>{
+    if(request.headers.origin&&!config.corsOrigins.includes(request.headers.origin))return reply.code(403).send({code:'FORBIDDEN',requestId:request.id});const actor=await account(request,reply,sessions,true);if(!actor)return;try{return await reports.generate(actor.id,request.params.id,String(request.headers['idempotency-key']),request.id);}catch(error){return failure(reply,error);}
+  });
+  app.get<{Params:{id:string};Querystring:{format?:string}}>('/v1/reports/:id/export',{schema:{operationId:'exportReportSnapshot',tags:['reports'],security:[{sessionCookie:[]}],params:idParams,querystring:{type:'object',additionalProperties:false,properties:{format:{type:'string',enum:['json','markdown','csv','pdf'],default:'json'}}}}},async(request,reply)=>{const actor=await account(request,reply,sessions);if(!actor)return;try{const report=await reports.get(actor.id,request.params.id),artifact=exportReport(report,request.query.format??'json');return reply.header('content-type',artifact.mime).header('content-disposition',`attachment; filename="hci-report-${report.id}-v${report.snapshotVersion}.${artifact.extension}"`).send(artifact.body);}catch(error){return failure(reply,error);}});
+}

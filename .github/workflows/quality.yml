@@ -1,0 +1,56 @@
+name: Backend quality
+on:
+  push:
+    paths: ["**"]
+  pull_request:
+    paths: ["**"]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: hci_bootstrap
+          POSTGRES_PASSWORD: ci_bootstrap_password_not_a_secret_000
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hci_bootstrap -d postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      TEST_POSTGRES: "1"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_BOOTSTRAP_USER: hci_bootstrap
+      POSTGRES_BOOTSTRAP_PASSWORD: ci_bootstrap_password_not_a_secret_000
+      IDENTIDAD_DB: identity_db
+      IDENTIDAD_MIGRATOR: identity_migrator
+      IDENTIDAD_MIGRATOR_PASSWORD: ci_identity_migrator_password_not_secret
+      IDENTIDAD_USER: identity_app
+      IDENTIDAD_PASSWORD: ci_identity_application_password_not_secret
+      APRENDIZAJE_DB: learning_db
+      APRENDIZAJE_MIGRATOR: learning_migrator
+      APRENDIZAJE_MIGRATOR_PASSWORD: ci_learning_migrator_password_not_secret
+      APRENDIZAJE_USER: learning_app
+      APRENDIZAJE_PASSWORD: ci_learning_application_password_not_secret
+      COMUNIDAD_DB: community_db
+      COMUNIDAD_MIGRATOR: community_migrator
+      COMUNIDAD_MIGRATOR_PASSWORD: ci_community_migrator_password_not_secret
+      COMUNIDAD_USER: community_app
+      COMUNIDAD_PASSWORD: ci_community_application_password_not_secret
+      EVIDENCIAS_DB: evidence_db
+      EVIDENCIAS_MIGRATOR: evidence_migrator
+      EVIDENCIAS_MIGRATOR_PASSWORD: ci_evidence_migrator_password_not_secret
+      EVIDENCIAS_USER: evidence_app
+      EVIDENCIAS_PASSWORD: ci_evidence_application_password_not_secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:provision
+      - run: npm run db:migrate
+      - run: npm run lint && npm run build && npm run test:all

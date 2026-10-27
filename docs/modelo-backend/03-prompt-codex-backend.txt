@@ -1,0 +1,41 @@
+Implementa el backend de HCI Lab + IA usando como fuente de diseño estos archivos revisados:
+- docs/backend-model/01-modelo-er.md
+- docs/backend-model/02-ddl-postgresql.sql
+
+Revisión del prompt para el modelo lógico v2.1. El DDL es una referencia relacional consolidada de 55 tablas, no una migración lista para aplicar a los cuatro servicios: conserva FKs entre dominios para documentar el MER. Deriva migraciones físicas por propietario; no cruces límites con FKs ni consultas directas a tablas ajenas. Los originales entregados por el usuario se conservan sin cambios.
+
+Estado existente que debes inspeccionar antes de modificar: el backend está en el repositorio hermano HCI-IA-LAB-Backend y el servicio Identidad ya tiene migraciones 001 y 002. La migración 002 creó cuentas con platform_role, sesiones y tokens de un solo uso. No edites migraciones aplicadas ni reconstruyas el repositorio. Diseña una migración posterior, aditiva y comprobable, para convertir los roles y alinear cuenta/sesión/token; conserva los hashes, cuentas, sesiones, tokens y datos ya existentes. Confirma el estado real de Git y de la base local antes de decidir pasos de migración.
+
+Antes de codificar, inspecciona el frontend actual y confirma que cada tipo de trabajo persistente del dominio aparece en el ER. No cambies el frontend fuera de lo requerido por la iteración autorizada ni inventes reglas. Reporta discrepancias y corrige el modelo primero si encuentras una incompatibilidad demostrable.
+
+ARQUITECTURA
+- Clean Architecture por dominios y capas: domain, application, infrastructure, presentation.
+- Servicios desplegables independientes de Identidad, Aprendizaje, Comunidad y Evidencias. No conviertas el backend en un monolito ni en un CRUD genérico.
+- Cada servicio es dueño de sus datos; inicialmente pueden compartir instancia PostgreSQL con esquemas/roles distintos, sin leer tablas ajenas directamente. Una referencia a un ID externo se valida por API/contrato; no crear una FK a una tabla de otro servicio.
+- API REST versionada y documentada con OpenAPI.
+- Mantén las carpetas del frontend intactas; intégralo mediante adaptadores HTTP.
+
+REGLAS DE NEGOCIO
+- El laboratorio es público. Visitantes ejecutan prácticas en el navegador; no crearles cuentas, registros de trabajo ni telemetría remota.
+- Solo cuentas registradas activas pueden sincronizar trabajo. Visitantes nunca generan filas en PostgreSQL: ni trabajo, perfiles temporales, eventos UX, sugerencias, preferencias ni eventos de auditoría de usuario. Las prácticas públicas siguen siendo locales en el navegador. Toda escritura de usuario requiere cuenta autenticada y espacio autorizado.
+- Separar cuentas reales de usuarios ficticios del CRUD didáctico.
+- Roles globales se asignan mediante CUENTA_ROL/ROL_PERMISO. MEMBRESIA_GRUPO.funcion es responsabilidad local del grupo; teacher/evaluator no implican administrator y el cliente nunca asigna permisos globales.
+- Verificación y recuperación usan TOKEN_CUENTA: solo hash persistido, propósito limitado, caducidad y consumo atómico de un solo uso. Desactivar una cuenta revoca sus sesiones. Mensajes y límites reducen enumeración de cuentas.
+- Preservar versiones de actividades, instrumentos, métricas y fórmulas utilizadas por resultados anteriores.
+- Guardar métricas tipadas. Validar que solo se informe un tipo de valor; calcular SUS/TLX desde respuestas y versión de fórmula; guardar ensayos Fitts/Hick como filas numeradas.
+- Seguimiento UX remoto detallado requiere consentimiento informado por finalidad; no capturar ni enviar por defecto; no almacenar video; hacer configurable retención/borrado. Persistir sesiones de página y ejemplo solo según la opción consentida y el ER.
+- La escritura debe confirmarse antes de informar éxito; transacciones, restricciones e idempotencia donde corresponda.
+- No usar transacciones distribuidas. Una validación síncrona fallida bloquea la escritura dependiente; flujos asíncronos entre servicios usan outbox/inbox, reintentos, correlación e idempotencia. Las proyecciones de informes se reconstruyen desde contratos/eventos del propietario.
+
+CALIDAD Y FLUJO
+- Antes de la primera iteración, inspecciona el árbol Git y cambios pendientes; nunca inicialices Git encima de un checkout.
+- Implementa de forma iterativa; cada dominio incluye pruebas unitarias, integración, contrato y E2E pertinentes en tests/.
+- No debilites pruebas para hacerlas pasar. Prueba migraciones desde cero y restricciones concurrentes.
+- Secretos por variables de entorno, nunca al frontend ni al repositorio. No usar información real de estudiantes en fixtures.
+- Mantener seis idiomas y accesibilidad del frontend.
+- Actualiza OpenAPI, migraciones y documentación junto con cada cambio.
+- No hacer push, merge, despliegue ni commit sin instrucción explícita.
+
+Primero confirma el checkout y que el frontend sea la versión 2.5.0. Contrasta el ER con sus modelos y reglas, conservando todas las propiedades de personas, escenarios, reservas, informes, accesibilidad, eventos y seguimiento. No uses una versión anterior del modelo si difiere de los archivos revisados. Produce una matriz ER↔código y el plan de iteraciones. Luego implementa solo la iteración solicitada, indicando pruebas, limitaciones y decisiones pendientes. No avances automáticamente.
+
+Antes de ejecutar SQL, verifica migraciones desde una base vacía y después la actualización desde la versión aplicada. La cuenta activa requiere correo verificado; pending, active, inactive y locked tienen transiciones explícitas. La autenticación existente usa cookie HttpOnly y CSRF; no almacenes tokens de acceso en localStorage. Migra el display_name legado a nombre sin inferir apellido. Los permisos no declarados se deniegan. Mantén el acceso público y las copias locales compatibles; visitantes no generan filas, incluso de auditoría. El seguimiento UX detallado remoto requiere consentimiento expreso por finalidad y retención aprobada; no guardes video.

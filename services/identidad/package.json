@@ -1,0 +1,21 @@
+{
+  "name": "@hci-ia-lab/identidad",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src tests --max-warnings=0",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "dev": "node --env-file-if-exists=../../.env --import tsx src/main.ts",
+    "migrate": "node --env-file-if-exists=../../.env --import tsx src/infrastructure/migrate.ts",
+    "identity:bootstrap-admin": "node --env-file-if-exists=../../.env --import tsx src/infrastructure/bootstrap-admin.ts"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^11.2.1",
+    "nodemailer": "^10.2.1"
+  }
+}
